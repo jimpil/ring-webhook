@@ -14,5 +14,23 @@
                         :sig-fn  #(subs % 7)}))
           wrapped-handler (middleware handler)
           payload    "{\"foo\":\"some-message\"}"]
-      (is (= ::ok (wrapped-handler {:body    (io/input-stream (.getBytes payload))
-                                    :headers {"x-signature" "sha256=a9d1efced768c3a2369c4005e437e2d5966350db4a443cb185f41c8d549353fa"}}))))))
+
+      (testing "Signature matching"
+        (->> {:body    (io/input-stream (.getBytes payload))
+              :headers {"x-signature" "sha256=a9d1efced768c3a2369c4005e437e2d5966350db4a443cb185f41c8d549353fa"}}
+             (wrapped-handler)
+             (= ::ok)
+             is))
+
+      (testing "Signature not matching"
+        (->> {:body    (io/input-stream (.getBytes payload))
+              :headers {"x-signature" "sha256=b9d1efced768c3a2369c4005e437e2d5966350db4a443cb185f41c8d549353fa"}}
+             (wrapped-handler)
+             (= wrong-signature-resp)
+             is))
+
+      (testing "Signature missing"
+        (->> {:body    (io/input-stream (.getBytes payload))}
+             (wrapped-handler)
+             (= wrong-signature-resp)
+             is)))))

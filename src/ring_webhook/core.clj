@@ -36,7 +36,7 @@
           (eq? (->> (sign body-raw)
                     (.formatHex hex-format)))))
 
-(def ^:private wrong-signature-resp 
+(def wrong-signature-resp 
   {:status  403
    :body    "Signature either wrong, or missing!"
    :headers {"Content-Type" "text/plain"}})
@@ -61,6 +61,8 @@
    Must be called after `wrap-raw-body`, in order to get access to the `:body-raw` key. 
    Options may include: 
    - :mac-algo - the Mac algorithm to use (defaults to 'HmacSHA256')
+   - :secret   - a string or byte-array/sequence to use as the SecretKeySpec when signing (mandatory) 
+   - :sig-key  - the request header name where the provided signature will be located (mandatory)
    - :sig-fn   - a 1-arg fn transforming the provided signature (defaults to `identity`) 
    - :eq-fn    - a 2-arg fn to compare the provided VS calculated signatures (defaults to `=`)
    - :hex-format - a `HexFormat` instance (defaults to `(HexFormat/of)`)"
