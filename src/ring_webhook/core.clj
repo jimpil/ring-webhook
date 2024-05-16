@@ -9,14 +9,15 @@
   [uri-pred {:keys [uri ^InputStream body content-length headers]
              :as req}]
   (if (uri-pred uri)
-    (let [raw (if-some [n (or content-length
-                              (some-> (get headers "content-length")
-                                      parse-long))]
-                (.readNBytes body n)
-                (.readAllBytes body))]
-      (assoc req
-             :body-raw raw
-             :body (io/input-stream raw)))
+    (with-open [in body]
+      (let [raw (if-some [n (or content-length
+                                (some-> (get headers "content-length")
+                                        parse-long))]
+                  (.readNBytes in n)
+                  (.readAllBytes in))]
+        (assoc req
+               :body-raw raw
+               :body (io/input-stream raw))))
     req))
 
 (defn- hmac-fn
@@ -36,7 +37,7 @@
           (eq? (->> (sign body-raw)
                     (.formatHex hex-format)))))
 
-(def wrong-signature-resp 
+(def wrong-signature-resp
   {:status  403
    :body    "Signature either wrong, or missing!"
    :headers {"Content-Type" "text/plain"}})
@@ -89,7 +90,7 @@
          (if (signature-ok? req sign eq-fn sig-fn sig-key hex-format)
            (handler req)
            wrong-signature-resp))
-        ([req respond raise] 
+        ([req respond raise]
          (if (signature-ok? req sign eq-fn sig-fn sig-key hex-format)
            (handler req respond raise)
            (respond wrong-signature-resp)))))))
