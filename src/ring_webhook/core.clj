@@ -1,9 +1,9 @@
 (ns ring-webhook.core
   (:require [clojure.java.io :as io])
-  (:import  [java.io InputStream]
-            [java.util HexFormat]
-            [javax.crypto Mac]
-            [javax.crypto.spec SecretKeySpec]))
+  (:import [java.io InputStream]
+           [java.util Base64 Base64$Encoder HexFormat]
+           [javax.crypto Mac]
+           [javax.crypto.spec SecretKeySpec]))
 
 (defn- with-raw
   [uri-pred {:keys [uri ^InputStream body content-length headers]
@@ -20,9 +20,12 @@
                :body (io/input-stream raw))))
     req))
 
-(defn- hmac-fn
-  [^String algo ^bytes secret]
-  (let [skey     (SecretKeySpec. secret algo) ;; thread-safe object
+(defn hmac-fn
+  [^String algo secret]
+  (let [^bytes secret-bs (if (string? secret)
+                           (.getBytes ^String secret)
+                           secret)
+        skey     (SecretKeySpec. secret-bs algo) ;; thread-safe object
         ^Mac mac (-> algo
                      (Mac/getInstance)
                      (doto (.init skey)))]
@@ -94,3 +97,49 @@
          (if (signature-ok? req sign eq-fn sig-fn sig-key hex-format)
            (handler req respond raise)
            (respond wrong-signature-resp)))))))
+
+(def ^:private algos
+  {:hs256 {:jwt "HS256"
+           :mac "HmacSHA256"}
+   :hs384 {:jwt "HS384"
+           :mac "HmacSHA384"}
+   :hs512 {:jwt "HS512"
+           :mac "HmacSHA512"}})
+
+(defn- jwt*
+  [algo claims]
+  {:header {:typ "JWT"
+            :alg algo}
+   :claims claims})
+
+(defn jws-fn
+  "Given a fn able to convert clj-data to JSON bytes, 
+   an HMAC algorithm (:hs256,384,512), and a <secret> (a byte-array 
+   or String whose length should be at least 256,384,512 / 8),
+   returns a fn taking arbitrary <claims> (a map), converting them
+   to proper JWT format, signing them, and returning the JWS data +
+   the full `:token` in the metadata."
+  [->json-bytes algo secret]
+  {:pre [(contains? algos algo)]}
+  (let [mac-algo (get-in algos [algo :mac])
+        jwt-algo (get-in algos [algo :jwt])
+        hmac     (hmac-fn mac-algo secret)
+        encoder  (.withoutPadding (Base64/getUrlEncoder))]
+    (fn sign-jwt [claims]
+      (let [{:keys [header claims]
+             :as jwt}  (jwt* jwt-algo claims)
+            header-b64 (->> header ->json-bytes (.encodeToString encoder))
+            claims-b64 (->> claims ->json-bytes (.encodeToString encoder))
+            jwt-str    (str header-b64 \. claims-b64)
+            signature  (->> (.getBytes jwt-str "UTF-8") hmac (.encodeToString encoder))]
+        (-> jwt
+            (assoc :signature signature)
+            (with-meta {:token (str jwt-str \. signature)}))))))
+
+(comment
+  (require 'clojure.data.json)
+  (def ->jws
+    (-> (comp (memfn ^String getBytes)
+              clojure.data.json/write-str)
+        (jws-fn :hs256 "Key-Must-Be-at-least-32-bytes-in-length!")))
+  (->jws {:admin true}))
