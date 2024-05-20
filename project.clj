@@ -1,4 +1,4 @@
-(defproject com.github.jimpil/ring-webhook "0.1.1-SNAPSHOT"
+(defproject com.github.jimpil/ring-webhook "0.1.1"
   :description "Ring middleware/utilities for working with webhooks & JWS tokens."
   :url "https://github.com/jimpil/ring-webhook"
   :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
