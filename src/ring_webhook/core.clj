@@ -1,7 +1,9 @@
 (ns ring-webhook.core
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str])
   (:import [java.io InputStream]
-           [java.util Base64 Base64$Encoder HexFormat]
+           [java.nio.charset StandardCharsets]
+           [java.util Base64 HexFormat]
            [javax.crypto Mac]
            [javax.crypto.spec SecretKeySpec]))
 
@@ -23,7 +25,7 @@
 (defn hmac-fn
   [^String algo secret]
   (let [^bytes secret-bs (if (string? secret)
-                           (.getBytes ^String secret)
+                           (.getBytes ^String secret StandardCharsets/UTF_8)
                            secret)
         skey     (SecretKeySpec. secret-bs algo) ;; thread-safe object
         ^Mac mac (-> algo
@@ -106,13 +108,21 @@
    :hs512 {:jwt "HS512"
            :mac "HmacSHA512"}})
 
+(defn- jwt->mac-algo
+  [jwt-algo]
+  (some
+   (fn [[_ {:keys [jwt mac]}]]
+     (when (= jwt-algo jwt)
+       mac))
+   algos))
+
 (defn- jwt*
   [algo claims]
   {:header {:typ "JWT"
             :alg algo}
    :claims claims})
 
-(defn jws-fn
+(defn jws-producer
   "Given a fn able to convert clj-data to JSON bytes, 
    an HMAC algorithm (:hs256,384,512), and a <secret> (a byte-array 
    or String whose length should be at least 256,384,512 / 8),
@@ -131,15 +141,52 @@
             header-b64 (->> header ->json-bytes (.encodeToString encoder))
             claims-b64 (->> claims ->json-bytes (.encodeToString encoder))
             jwt-str    (str header-b64 \. claims-b64)
-            signature  (->> (.getBytes jwt-str "UTF-8") hmac (.encodeToString encoder))]
+            signature  (->> (.getBytes jwt-str StandardCharsets/UTF_8)
+                            hmac
+                            (.encodeToString encoder))]
         (-> jwt
             (assoc :signature signature)
             (with-meta {:token (str jwt-str \. signature)}))))))
 
+(defn jws-reader
+  "Given a fn able to convert JSON bytes to clj-data, returns
+   a function which 'reads' a JWS token (String) as a clj-map.
+   The full `:token` is preserved in the metadata, alongside a
+   `:verify` predicate, able to check the signature (given a secret)."
+  [<-json-bytes]
+  (let [encoder  (.withoutPadding (Base64/getUrlEncoder))
+        decoder  (Base64/getUrlDecoder)]
+    (fn [^String token]
+      (let [[encoded-header encoded-claims signature] (str/split token #"\." 3)
+            payload   (str encoded-header \. encoded-claims)
+            header    (->> encoded-header (.decode decoder) <-json-bytes)
+            claims    (->> encoded-claims (.decode decoder) <-json-bytes)
+            algo      (:alg header)]
+        (-> (jwt* algo claims)
+            (assoc :header    header
+                   :signature signature)
+            (with-meta
+              {:token  token
+               :verify (fn [secret]
+                         (when-some [hmac (some-> (jwt->mac-algo algo)
+                                                  (hmac-fn secret))]
+                           (->> (.getBytes payload StandardCharsets/UTF_8)
+                                hmac
+                                (.encodeToString encoder)
+                                (= signature))))}))))))
+
 (comment
   (require 'clojure.data.json)
-  (def ->jws
+  (def claims->jws
     (-> (comp (memfn ^String getBytes)
               clojure.data.json/write-str)
-        (jws-fn :hs256 "Key-Must-Be-at-least-32-bytes-in-length!")))
-  (->jws {:admin true}))
+        (jws-producer :hs256 "Key-Must-Be-at-least-32-bytes-in-length!")))
+
+  (def str->jws
+    (jws-reader (comp #(clojure.data.json/read-str % :key-fn keyword)
+                      #(String. ^bytes %))))
+
+
+  (claims->jws {:admin true})
+  (str->jws "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")
+  )

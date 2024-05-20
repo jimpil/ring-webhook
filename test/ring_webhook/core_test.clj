@@ -39,7 +39,7 @@
 (deftest jwt-signing-tests
   (let [->jws (-> (comp (memfn ^String getBytes)
                         json/write-str)
-                  (jws-fn :hs256 "Key-Must-Be-at-least-32-bytes-in-length!"))]
+                  (jws-producer :hs256 "Key-Must-Be-at-least-32-bytes-in-length!"))]
     (is
      (->> {:admin true}
           ->jws
