@@ -37,11 +37,13 @@
              is)))))
 
 (deftest jwt-signing-tests
-  (let [->jws (-> (comp (memfn ^String getBytes)
-                        json/write-str)
-                  (jws-producer :hs256 "Key-Must-Be-at-least-32-bytes-in-length!"))]
-    (is
-     (->> {:admin true}
-          ->jws
-          :signature
-          (= "oRvT0gzL1pGPzXUJDDfuS5ViCXu12CEoe6MykK1fkMc")))))
+  (let [claims->jws (-> (comp (memfn ^String getBytes)
+                              json/write-str)
+                        (jws-producer :hs256 "Key-Must-Be-at-least-32-bytes-in-length!"))
+        str->jws    (jws-reader (comp #(clojure.data.json/read-str % :key-fn keyword)
+                                      #(String. ^bytes %)))
+        jws-map (claims->jws {:admin true})]
+    (is (= "oRvT0gzL1pGPzXUJDDfuS5ViCXu12CEoe6MykK1fkMc"
+           (:signature jws-map)))
+    (is (= jws-map
+           (str->jws (:token (meta jws-map)))))))
