@@ -8,7 +8,9 @@ FIXME: add clojar coords
 
 ## How
 
-### wrap-raw-body [uri-pred]
+### Webhooks
+
+#### wrap-raw-body [uri-pred]
 The first thing you need is the raw bytes from the server's `InputStream`. 
 In a typical Clojure ring-based api, you can find this stream under `:body`, 
 however it is highly likely that it will have already been consumed (i.e. it will be empty)
@@ -19,7 +21,7 @@ Instead, use this as your very first middleware, which will simply add a new key
 `uri-pred` takes the request's `:uri`, and decides whether the logic applies for it. For example, this could be
 the *set* of all webhook paths.
 
-### wrap-with-signature-verification [opts]
+#### wrap-with-signature-verification [opts]
 With `:body-raw` available in the request-map, you're all set to do the actual signature verification.
 Simply wrap your handler, with the middleware returned by this function. Options are:
 
@@ -38,6 +40,23 @@ Returns the following (instead of calling the handler its wrapping) when signatu
  :headers {"Content-Type" "text/plain"}}
 ```
 See `core_test.clj` for example usage.
+
+### JWS tokens
+
+#### jws-producer
+Returns a function that takes arbitrary 'claims' (a map), 
+and produces signed-JWT data (a map of 3 keys - :header, :claims, :signature).
+In addition, the returned map's metadata will contain the full `:token`.
+
+This function expects a `->json-bytes` fn as its first argument. 
+If you have `jsonista` on your classpath, simply pass `write-value-as-bytes`,
+otherwise you can always compose - e.g. `(comp (memfn ^String getBytes) clojure.data.json/write-str)`.
+
+#### jws-reader
+Not related to `java.io.Reader`, this is kind-of the opposite of `jws-producer`.
+Returns a function that takes a JWS token (String), and returns it as a map, with 
+some potentially useful metadata - `:token` (input arg) & `:verify` (signature 
+verification predicate - takes the secret as its only arg).
 
 ## License
 
